@@ -1,26 +1,63 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Tetris Simple JS</title>
+    <title>3D Tetris JS</title>
     <style>
-        body { background: #202028; color: #fff; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; }
-        canvas { border: solid 2px #fff; background-color: #000; }
-        #score { font-size: 24px; margin: 10px; }
+        body { margin: 0; overflow: hidden; background: #111; font-family: sans-serif; }
+        #ui { position: absolute; top: 20px; left: 20px; color: white; pointer-events: none; }
+        #score { font-size: 30px; font-weight: bold; }
+        #instructions { font-size: 14px; opacity: 0.8; margin-top: 10px; }
     </style>
 </head>
 <body>
-    <div id="score">Score: 0</div>
-    <canvas id="tetris" width="240" height="400"></canvas>
+    <div id="ui">
+        <div id="score">Score: 0</div>
+        <div id="instructions">Arrows: Move & Rotate<br>Down: Drop faster</div>
+    </div>
+
+    <!-- Load Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 
     <script>
-        const canvas = document.getElementById('tetris');
-        const context = canvas.getContext('2d');
-        const scoreElement = document.getElementById('score');
+        // --- GAME CONFIG ---
+        const COLS = 12;
+        const ROWS = 20;
+        const BLOCK_SIZE = 1;
 
-        context.scale(20, 20); // Agrandit les pixels pour dessiner des blocs de 20px
+        let score = 0;
+        let arena = createMatrix(COLS, ROWS);
 
-        // 1. Définition des pièces (Tetrominoes)
+        // --- THREE.JS SETUP ---
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0x404040, 2);
+        scene.add(ambientLight);
+        const light = new THREE.PointLight(0xffffff, 1, 100);
+        light.position.set(10, 10, 10);
+        scene.add(light);
+
+        camera.position.set(COLS / 2, ROWS / 2, 20);
+        camera.lookAt(COLS / 2, ROWS / 2, 0);
+
+        // Colors for pieces
+        const colors = [null, 0xFF0D72, 0x0DC2FF, 0x0DFF72, 0xF538FF, 0xFF8E0D, 0xFFE138, 0x3877FF];
+
+        // Helper to create 3D cubes
+        const cubeGeo = new THREE.BoxGeometry(0.95, 0.95, 0.95); // slightly smaller than 1 for "grid" look
+
+        // --- GAME LOGIC ---
+        function createMatrix(w, h) {
+            const matrix = [];
+            while (h--) matrix.push(new Array(w).fill(0));
+            return matrix;
+        }
+
         function createPiece(type) {
             if (type === 'I') return [[0, 1, 0, 0], [0, 1, 0, 0], [0, 1, 0, 0], [0, 1, 0, 0]];
             if (type === 'L') return [[0, 2, 0], [0, 2, 0], [0, 2, 2]];
@@ -31,24 +68,22 @@
             if (type === 'T') return [[0, 7, 0], [7, 7, 7], [0, 0, 0]];
         }
 
-        const colors = [null, '#FF0D72', '#0DC2FF', '#0DFF72', '#F538FF', '#FF8E0D', '#FFE138', '#3877FF'];
-
-        // 2. Création de la grille (le plateau)
-        function createMatrix(w, h) {
-            const matrix = [];
-            while (h--) matrix.push(new Array(w).fill(0));
-            return matrix;
-        }
-
-        const arena = createMatrix(12, 20);
-
         const player = {
             pos: {x: 0, y: 0},
             matrix: null,
-            score: 0,
         };
 
-        // 3. Logique de collision
+        // 3D Visual Representation of the Arena
+        let visualArena = []; // To keep track of Mesh objects
+        function initVisualArena() {
+            for(let y=0; y<ROWS; y++) {
+                visualArena[y] = [];
+                for(let x=0; x<COLS; x++) {
+                    visualArena[y][x] = null;
+                }
+            }
+        }
+
         function collide(arena, player) {
             const [m, o] = [player.matrix, player.pos];
             for (let y = 0; y < m.length; ++y) {
@@ -61,7 +96,6 @@
             return false;
         }
 
-        // 4. Fusionner la pièce avec le plateau
         function merge(arena, player) {
             player.matrix.forEach((row, y) => {
                 row.forEach((value, x) => {
@@ -72,7 +106,6 @@
             });
         }
 
-        // 5. Rotation de la matrice
         function rotate(matrix) {
             for (let y = 0; y < matrix.length; ++y) {
                 for (let x = 0; x < y; ++x) {
@@ -82,7 +115,6 @@
             matrix.forEach(row => row.reverse());
         }
 
-        // 6. Nettoyage des lignes pleines
         function arenaSweep() {
             let rowCount = 1;
             outer: for (let y = arena.length - 1; y > 0; --y) {
@@ -92,36 +124,12 @@
                 const row = arena.splice(y, 1)[0].fill(0);
                 arena.unshift(row);
                 ++y;
-                player.score += rowCount * 10;
+                score += rowCount * 10;
                 rowCount *= 2;
             }
-            updateScore();
+            document.getElementById('score').innerText = "Score: " + score;
         }
 
-        // 7. Dessin
-        function draw() {
-            context.fillStyle = '#000';
-            context.fillRect(0, 0, canvas.width, canvas.height);
-            drawMatrix(arena, {x: 0, y: 0});
-            drawMatrix(player.matrix, player.pos);
-        }
-
-        function drawMatrix(matrix, offset) {
-            matrix.forEach((row, y) => {
-                row.forEach((value, x) => {
-                    if (value !== 0) {
-                        context.fillStyle = colors[value];
-                        context.fillRect(x + offset.x, y + offset.y, 1, 1);
-                    }
-                });
-            });
-        }
-
-        function updateScore() {
-            scoreElement.innerText = "Score: " + player.score;
-        }
-
-        // 8. Mouvement et Game Loop
         function playerDrop() {
             player.pos.y++;
             if (collide(arena, player)) {
@@ -135,9 +143,7 @@
 
         function playerMove(dir) {
             player.pos.x += dir;
-            if (collide(arena, player)) {
-                player.pos.x -= dir;
-            }
+            if (collide(arena, player)) player.pos.x -= dir;
         }
 
         function playerRotate() {
@@ -148,7 +154,9 @@
                 player.pos.x += offset;
                 offset = -(offset + (offset > 0 ? 1 : -1));
                 if (offset > player.matrix[0].length) {
-                    rotate(player.matrix); // Annule la rotation si impossible
+                    rotate(player.matrix);
+                    rotate(player.matrix);
+                    rotate(player.matrix);
                     player.pos.x = pos;
                     return;
                 }
@@ -161,15 +169,50 @@
             player.pos.y = 0;
             player.pos.x = (arena[0].length / 2 | 0) - (player.matrix[0].length / 2 | 0);
             if (collide(arena, player)) {
-                arena.forEach(row => row.fill(0)); // Game Over : on vide tout
-                player.score = 0;
-                updateScore();
+                arena.forEach(row => row.fill(0));
+                score = 0;
+                document.getElementById('score').innerText = "Score: " + score;
             }
         }
 
+        // --- RENDER LOOP ---
         let dropCounter = 0;
         let dropInterval = 1000;
         let lastTime = 0;
+
+        function draw() {
+            // Clear all 3D blocks from the scene before redrawing
+            // (In a real game, we'd update positions instead of recreating,
+            // but for a "simple" example, this is the easiest way to sync)
+            while(scene.children.length > 2) { // Keep lights
+                const obj = scene.children[scene.children.length - 1];
+                if(obj.type === "Mesh") scene.remove(obj);
+            }
+
+            // Draw Arena
+            arena.forEach((row, y) => {
+                row.forEach((value, x) => {
+                    if (value !== 0) {
+                        const material = new THREE.MeshPhongMaterial({ color: colors[value] });
+                        const mesh = new THREE.Mesh(cubeGeo, material);
+                        mesh.position.set(x, ROWS - y, 0);
+                        scene.add(mesh);
+                    }
+                });
+            });
+
+            // Draw Active Piece
+            player.matrix.forEach((row, y) => {
+                row.forEach((value, x) => {
+                    if (value !== 0) {
+                        const material = new THREE.MeshPhongMaterial({ color: colors[value] });
+                        const mesh = new THREE.Mesh(cubeGeo, material);
+                        mesh.position.set(x + player.pos.x, ROWS - (y + player.pos.y), 0);
+                        scene.add(mesh);
+                    }
+                });
+            });
+        }
 
         function update(time = 0) {
             const deltaTime = time - lastTime;
@@ -179,20 +222,27 @@
                 playerDrop();
             }
             draw();
+            renderer.render(scene, camera);
             requestAnimationFrame(update);
         }
 
-        // Contrôles clavier
         document.addEventListener('keydown', event => {
-            if (event.keyCode === 37) playerMove(-1); // Gauche
-            else if (event.keyCode === 39) playerMove(1);  // Droite
-            else if (event.keyCode === 40) playerDrop();   // Bas
-            else if (event.keyCode === 38) playerRotate(); // Haut (Rotation)
+            if (event.keyCode === 37) playerMove(-1);
+            else if (event.keyCode === 39) playerMove(1);
+            else if (event.keyCode === 40) playerDrop();
+            else if (event.keyCode === 38) playerRotate();
         });
 
+        initVisualArena();
         playerReset();
-        updateScore();
         update();
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
     </script>
 </body>
 </html>
