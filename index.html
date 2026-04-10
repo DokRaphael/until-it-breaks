@@ -2,40 +2,34 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>3D Tetris JS</title>
+    <title>Googly Eye Tetris 3D</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #111; font-family: sans-serif; }
+        body { margin: 0; overflow: hidden; background: #111; font-family: 'Comic Sans MS', cursive, sans-serif; }
         #ui { position: absolute; top: 20px; left: 20px; color: white; pointer-events: none; }
-        #score { font-size: 30px; font-weight: bold; }
+        #score { font-size: 30px; font-weight: bold; text-shadow: 2px 2px #ff00ff; }
         #instructions { font-size: 14px; opacity: 0.8; margin-top: 10px; }
     </style>
 </head>
-<body>
+<body style="background: radial-gradient(circle, #222, #000);">
     <div id="ui">
         <div id="score">Score: 0</div>
-        <div id="instructions">Arrows: Move & Rotate<br>Down: Drop faster</div>
+        <div id="instructions">Arrows: Move & Rotate<br>Down: Drop faster<br><b>The blocks are watching you...</b></div>
     </div>
 
-    <!-- Load Three.js -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 
     <script>
-        // --- GAME CONFIG ---
         const COLS = 12;
         const ROWS = 20;
-        const BLOCK_SIZE = 1;
-
         let score = 0;
         let arena = createMatrix(COLS, ROWS);
 
-        // --- THREE.JS SETUP ---
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
 
-        // Lighting
         const ambientLight = new THREE.AmbientLight(0x404040, 2);
         scene.add(ambientLight);
         const light = new THREE.PointLight(0xffffff, 1, 100);
@@ -45,13 +39,29 @@
         camera.position.set(COLS / 2, ROWS / 2, 20);
         camera.lookAt(COLS / 2, ROWS / 2, 0);
 
-        // Colors for pieces
         const colors = [null, 0xFF0D72, 0x0DC2FF, 0x0DFF72, 0xF538FF, 0xFF8E0D, 0xFFE138, 0x3877FF];
+        const cubeGeo = new THREE.BoxGeometry(0.95, 0.95, 0.95);
 
-        // Helper to create 3D cubes
-        const cubeGeo = new THREE.BoxGeometry(0.95, 0.95, 0.95); // slightly smaller than 1 for "grid" look
+        // --- GOOGLY EYE CREATOR ---
+        function createEye() {
+            const eyeGroup = new THREE.Group();
 
-        // --- GAME LOGIC ---
+            // White part
+            const whiteGeo = new THREE.SphereGeometry(0.2, 16, 16);
+            const whiteMat = new THREE.MeshPhongMaterial({ color: 0xffffff });
+            const whiteSphere = new THREE.Mesh(whiteGeo, whiteMat);
+
+            // Black pupil
+            const blackGeo = new THREE.SphereGeometry(0.1, 16, 16);
+            const blackMat = new THREE.MeshPhongMaterial({ color: 0x000000 });
+            const blackSphere = new THREE.Mesh(blackGeo, blackMat);
+            blackSphere.position.z = 0.15; // Move pupil to the front of the white sphere
+
+            eyeGroup.add(whiteSphere);
+            eyeGroup.add(blackSphere);
+            return eyeGroup;
+        }
+
         function createMatrix(w, h) {
             const matrix = [];
             while (h--) matrix.push(new Array(w).fill(0));
@@ -68,29 +78,13 @@
             if (type === 'T') return [[0, 7, 0], [7, 7, 7], [0, 0, 0]];
         }
 
-        const player = {
-            pos: {x: 0, y: 0},
-            matrix: null,
-        };
-
-        // 3D Visual Representation of the Arena
-        let visualArena = []; // To keep track of Mesh objects
-        function initVisualArena() {
-            for(let y=0; y<ROWS; y++) {
-                visualArena[y] = [];
-                for(let x=0; x<COLS; x++) {
-                    visualArena[y][x] = null;
-                }
-            }
-        }
+        const player = { pos: {x: 0, y: 0}, matrix: null };
 
         function collide(arena, player) {
             const [m, o] = [player.matrix, player.pos];
             for (let y = 0; y < m.length; ++y) {
                 for (let x = 0; x < m[y].length; ++x) {
-                    if (m[y][x] !== 0 && (arena[y + o.y] && arena[y + o.y][x + o.x]) !== 0) {
-                        return true;
-                    }
+                    if (m[y][x] !== 0 && (arena[y + o.y] && arena[y + o.y][x + o.x]) !== 0) return true;
                 }
             }
             return false;
@@ -99,18 +93,14 @@
         function merge(arena, player) {
             player.matrix.forEach((row, y) => {
                 row.forEach((value, x) => {
-                    if (value !== 0) {
-                        arena[y + player.pos.y][x + player.pos.x] = value;
-                    }
+                    if (value !== 0) arena[y + player.pos.y][x + player.pos.x] = value;
                 });
             });
         }
 
         function rotate(matrix) {
             for (let y = 0; y < matrix.length; ++y) {
-                for (let x = 0; x < y; ++x) {
-                    [matrix[x][y], matrix[y][x]] = [matrix[y][x], matrix[x][y]];
-                }
+                for (let x = 0; x < y; ++x) [matrix[x][y], matrix[y][x]] = [matrix[y][x], matrix[x][y]];
             }
             matrix.forEach(row => row.reverse());
         }
@@ -154,9 +144,7 @@
                 player.pos.x += offset;
                 offset = -(offset + (offset > 0 ? 1 : -1));
                 if (offset > player.matrix[0].length) {
-                    rotate(player.matrix);
-                    rotate(player.matrix);
-                    rotate(player.matrix);
+                    rotate(player.matrix); rotate(player.matrix); rotate(player.matrix);
                     player.pos.x = pos;
                     return;
                 }
@@ -175,18 +163,14 @@
             }
         }
 
-        // --- RENDER LOOP ---
         let dropCounter = 0;
         let dropInterval = 1000;
         let lastTime = 0;
 
         function draw() {
-            // Clear all 3D blocks from the scene before redrawing
-            // (In a real game, we'd update positions instead of recreating,
-            // but for a "simple" example, this is the easiest way to sync)
-            while(scene.children.length > 2) { // Keep lights
+            while(scene.children.length > 2) {
                 const obj = scene.children[scene.children.length - 1];
-                if(obj.type === "Mesh") scene.remove(obj);
+                if(obj.type === "Mesh" || obj.type === "Group") scene.remove(obj);
             }
 
             // Draw Arena
@@ -202,6 +186,7 @@
             });
 
             // Draw Active Piece
+            let headX = 0, headY = 0; // To find where to put eyes
             player.matrix.forEach((row, y) => {
                 row.forEach((value, x) => {
                     if (value !== 0) {
@@ -209,18 +194,30 @@
                         const mesh = new THREE.Mesh(cubeGeo, material);
                         mesh.position.set(x + player.pos.x, ROWS - (y + player.pos.y), 0);
                         scene.add(mesh);
+                        // We'll put the eyes on the first block of the piece found
+                        headX = x + player.pos.x;
+                        headY = ROWS - (y + player.pos.y);
                     }
                 });
             });
+
+            // --- ADD THE GOOGLY EYES ---
+            const eyeL = createEye();
+            const eyeR = createEye();
+
+            // Position eyes slightly apart and on the front (Z = 0.5)
+            eyeL.position.set(headX - 0.2, headY + 0.2, 0.5);
+            eyeR.position.set(headX + 0.2, headY + 0.2, 0.5);
+
+            scene.add(eyeL);
+            scene.add(eyeR);
         }
 
         function update(time = 0) {
             const deltaTime = time - lastTime;
             lastTime = time;
             dropCounter += deltaTime;
-            if (dropCounter > dropInterval) {
-                playerDrop();
-            }
+            if (dropCounter > dropInterval) playerDrop();
             draw();
             renderer.render(scene, camera);
             requestAnimationFrame(update);
@@ -233,11 +230,9 @@
             else if (event.keyCode === 38) playerRotate();
         });
 
-        initVisualArena();
         playerReset();
         update();
 
-        // Handle window resize
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
