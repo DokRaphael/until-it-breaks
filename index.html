@@ -2,19 +2,25 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Googly Eye Tetris 3D</title>
+    <title>POV: Tetris Horror - Fixed</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #111; font-family: 'Comic Sans MS', cursive, sans-serif; }
-        #ui { position: absolute; top: 20px; left: 20px; color: white; pointer-events: none; }
-        #score { font-size: 30px; font-weight: bold; text-shadow: 2px 2px #ff00ff; }
-        #instructions { font-size: 14px; opacity: 0.8; margin-top: 10px; }
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', Courier, monospace; }
+        #ui { position: absolute; top: 20px; left: 20px; color: #0f0; pointer-events: none; text-shadow: 0 0 5px #0f0; z-index: 100; }
+        #score { font-size: 24px; }
+        #warning { color: #ff0000; font-weight: bold; display: none; font-size: 20px; animation: blink 0.5s infinite; }
+        @keyframes blink { 0% { opacity: 0; } 50% { opacity: 1; } 100% { opacity: 0; } }
+        #overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: none;
+                   justify-content: center; align-items: center; color: white;
+                   background: rgba(0,0,0,0.9); font-size: 50px; z-index: 1000; }
     </style>
 </head>
-<body style="background: radial-gradient(circle, #222, #000);">
+<body>
     <div id="ui">
-        <div id="score">Score: 0</div>
-        <div id="instructions">Arrows: Move & Rotate<br>Down: Drop faster<br><b>The blocks are watching you...</b></div>
+        <div id="score">ALTITUDE: 0</div>
+        <div id="warning">⚠️ CRITICAL MASS DETECTED ⚠️</div>
+        <div style="font-size: 12px; margin-top: 10px;">ARROWS to move/rotate. Look up. Survive.</div>
     </div>
+    <div id="overlay">CRUSHED!</div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 
@@ -22,43 +28,64 @@
         const COLS = 12;
         const ROWS = 20;
         let score = 0;
+        let gameOver = false;
         let arena = createMatrix(COLS, ROWS);
 
+        // --- THREE.JS SETUP ---
         const scene = new THREE.Scene();
+        // Lowered fog density so the blocks are visible
+        scene.fog = new THREE.FogExp2(0x000000, 0.02);
+
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
 
-        const ambientLight = new THREE.AmbientLight(0x404040, 2);
-        scene.add(ambientLight);
-        const light = new THREE.PointLight(0xffffff, 1, 100);
-        light.position.set(10, 10, 10);
-        scene.add(light);
+        // Separate group for blocks so we can clear them without deleting the walls/lights
+        const gameGroup = new THREE.Group();
+        scene.add(gameGroup);
 
-        camera.position.set(COLS / 2, ROWS / 2, 20);
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0x404040, 1.5);
+        scene.add(ambientLight);
+
+        const pointLight = new THREE.PointLight(0x00ff00, 2, 50);
+        pointLight.position.set(COLS/2, 2, 5);
+        scene.add(pointLight);
+
+        // POV CAMERA: Bottom of the well, looking up
+        camera.position.set(COLS / 2, 0.5, 10);
         camera.lookAt(COLS / 2, ROWS / 2, 0);
 
-        const colors = [null, 0xFF0D72, 0x0DC2FF, 0x0DFF72, 0xF538FF, 0xFF8E0D, 0xFFE138, 0x3877FF];
-        const cubeGeo = new THREE.BoxGeometry(0.95, 0.95, 0.95);
+        // ENVIRONMENT: The Well (Static objects)
+        const wallMat = new THREE.MeshPhongMaterial({ color: 0x222222, side: THREE.DoubleSide });
 
-        // --- GOOGLY EYE CREATOR ---
+        // Back Wall
+        const backWallGeo = new THREE.PlaneGeometry(COLS, ROWS);
+        const backWall = new THREE.Mesh(backWallGeo, wallMat);
+        backWall.position.set(COLS/2, ROWS/2, -1);
+        scene.add(backWall);
+
+        // Left and Right Walls
+        const sideWallGeo = new THREE.BoxGeometry(1, ROWS, 2);
+        const leftWall = new THREE.Mesh(sideWallGeo, wallMat);
+        leftWall.position.set(0, ROWS/2, 0);
+        scene.add(leftWall);
+
+        const rightWall = new THREE.Mesh(sideWallGeo, wallMat);
+        rightWall.position.set(COLS, ROWS/2, 0);
+        scene.add(rightWall);
+
+        const colors = [null, 0xFF0D72, 0x0DC2FF, 0x0DFF72, 0xF538FF, 0xFF8E0D, 0xFFE138, 0x3877FF];
+        const cubeGeo = new THREE.BoxGeometry(0.9, 0.9, 0.9);
+
         function createEye() {
             const eyeGroup = new THREE.Group();
-
-            // White part
-            const whiteGeo = new THREE.SphereGeometry(0.2, 16, 16);
-            const whiteMat = new THREE.MeshPhongMaterial({ color: 0xffffff });
-            const whiteSphere = new THREE.Mesh(whiteGeo, whiteMat);
-
-            // Black pupil
-            const blackGeo = new THREE.SphereGeometry(0.1, 16, 16);
-            const blackMat = new THREE.MeshPhongMaterial({ color: 0x000000 });
-            const blackSphere = new THREE.Mesh(blackGeo, blackMat);
-            blackSphere.position.z = 0.15; // Move pupil to the front of the white sphere
-
-            eyeGroup.add(whiteSphere);
-            eyeGroup.add(blackSphere);
+            const white = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 8), new THREE.MeshPhongMaterial({color: 0xffffff}));
+            const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), new THREE.MeshPhongMaterial({color: 0x000000}));
+            pupil.position.y = -0.15; // Staring down at you
+            eyeGroup.add(white);
+            eyeGroup.add(pupil);
             return eyeGroup;
         }
 
@@ -117,7 +144,7 @@
                 score += rowCount * 10;
                 rowCount *= 2;
             }
-            document.getElementById('score').innerText = "Score: " + score;
+            document.getElementById('score').innerText = "ALTITUDE: " + score;
         }
 
         function playerDrop() {
@@ -157,9 +184,8 @@
             player.pos.y = 0;
             player.pos.x = (arena[0].length / 2 | 0) - (player.matrix[0].length / 2 | 0);
             if (collide(arena, player)) {
-                arena.forEach(row => row.fill(0));
-                score = 0;
-                document.getElementById('score').innerText = "Score: " + score;
+                gameOver = true;
+                document.getElementById('overlay').style.display = 'flex';
             }
         }
 
@@ -168,52 +194,45 @@
         let lastTime = 0;
 
         function draw() {
-            while(scene.children.length > 2) {
-                const obj = scene.children[scene.children.length - 1];
-                if(obj.type === "Mesh" || obj.type === "Group") scene.remove(obj);
-            }
+            // CLEAR ONLY THE BLOCKS, not the walls or lights
+            gameGroup.clear();
 
-            // Draw Arena
             arena.forEach((row, y) => {
                 row.forEach((value, x) => {
                     if (value !== 0) {
-                        const material = new THREE.MeshPhongMaterial({ color: colors[value] });
-                        const mesh = new THREE.Mesh(cubeGeo, material);
-                        mesh.position.set(x, ROWS - y, 0);
-                        scene.add(mesh);
+                        const mesh = new THREE.Mesh(cubeGeo, new THREE.MeshPhongMaterial({ color: colors[value] }));
+                        mesh.position.set(x + 0.5, (ROWS - 1) - y, 0);
+                        gameGroup.add(mesh);
                     }
                 });
             });
 
-            // Draw Active Piece
-            let headX = 0, headY = 0; // To find where to put eyes
+            let headX = 0, headY = 0;
             player.matrix.forEach((row, y) => {
                 row.forEach((value, x) => {
                     if (value !== 0) {
-                        const material = new THREE.MeshPhongMaterial({ color: colors[value] });
-                        const mesh = new THREE.Mesh(cubeGeo, material);
-                        mesh.position.set(x + player.pos.x, ROWS - (y + player.pos.y), 0);
-                        scene.add(mesh);
-                        // We'll put the eyes on the first block of the piece found
-                        headX = x + player.pos.x;
-                        headY = ROWS - (y + player.pos.y);
+                        const mesh = new THREE.Mesh(cubeGeo, new THREE.MeshPhongMaterial({ color: colors[value] }));
+                        mesh.position.set(x + player.pos.x + 0.5, (ROWS - 1) - (y + player.pos.y), 0);
+                        gameGroup.add(mesh);
+                        headX = x + player.pos.x + 0.5;
+                        headY = (ROWS - 1) - (y + player.pos.y);
                     }
                 });
             });
 
-            // --- ADD THE GOOGLY EYES ---
             const eyeL = createEye();
             const eyeR = createEye();
+            eyeL.position.set(headX - 0.2, headY - 0.5, 0);
+            eyeR.position.set(headX + 0.2, headY - 0.5, 0);
+            gameGroup.add(eyeL);
+            gameGroup.add(eyeR);
 
-            // Position eyes slightly apart and on the front (Z = 0.5)
-            eyeL.position.set(headX - 0.2, headY + 0.2, 0.5);
-            eyeR.position.set(headX + 0.2, headY + 0.2, 0.5);
-
-            scene.add(eyeL);
-            scene.add(eyeR);
+            const minHeight = Math.min(...arena.map((r, i) => r.some(v => v !== 0) ? i : ROWS));
+            document.getElementById('warning').style.display = (minHeight < 5) ? 'block' : 'none';
         }
 
         function update(time = 0) {
+            if(gameOver) return;
             const deltaTime = time - lastTime;
             lastTime = time;
             dropCounter += deltaTime;
